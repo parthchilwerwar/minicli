@@ -92,7 +92,8 @@ Your response:"""
         logger.info("Proactive check: nothing to send")
         return None
 
-    _last_proactive = now
+    if answer and answer.upper() != "SKIP":
+        _last_proactive = now
 
     # Save the proactive message to memory
     store.add_memory(

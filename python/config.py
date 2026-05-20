@@ -19,6 +19,7 @@ FALLBACK_MODEL: str = "qwen/qwen3-next-80b-a3b-instruct:free"
 # ── Network ─────────────────────────────────────────────────────────────────
 BRIDGE_PORT: int = int(os.getenv("BRIDGE_PORT", "6275"))
 BRIDGE_SECRET: str = os.getenv("BRIDGE_SECRET", "")
+DEV_BYPASS_AUTH: bool = os.getenv("DEV_BYPASS_AUTH", "false").lower() == "true"
 AGENT_PORT: int = int(os.getenv("AGENT_PORT", "6280"))
 
 # ── Paths ───────────────────────────────────────────────────────────────────

@@ -24,6 +24,8 @@ async def call_bridge_tool(tool_name: str, args: dict) -> str:
                 json={"args": args},
                 headers=headers,
             )
+            if resp.status_code >= 400:
+                raise Exception(f"HTTP {resp.status_code}: {resp.text}")
             data = resp.json()
             return data.get("result", str(data))
     except httpx.TimeoutException:
@@ -178,6 +180,8 @@ async def news_summarise_today() -> str:
     return await call_bridge_tool("news_summarise_today", {})
 
 
+from .web_search import web_search
+
 # ── Gmail ────────────────────────────────────────────────────────────────────
 
 @tool
@@ -200,10 +204,13 @@ async def save_note(text: str, tags: str = "") -> str:
     return await call_bridge_tool("save_note", {"text": text, "tags": tags})
 
 
+# NOTE: Agents should prefer importing the native `web_search` tool from `python/tools/web_search.py`
+# directly, rather than using `web_search_bridge`. This bridge version is kept for backwards
+# compatibility.
 @tool
 async def web_search_bridge(query: str) -> str:
-    """Search the web using DuckDuckGo via the Node.js bridge."""
-    return await call_bridge_tool("web_search", {"query": query})
+    """Search the web using DuckDuckGo. Delegates to the native Python implementation."""
+    return await web_search.invoke({"query": query})
 
 
 # ── Export ───────────────────────────────────────────────────────────────────

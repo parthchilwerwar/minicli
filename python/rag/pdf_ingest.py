@@ -30,10 +30,19 @@ async def ingest_pdf(file_path: str) -> dict:
         raise ValueError(f"Not a PDF file: {path.name}")
 
     # Extract text from all pages
-    reader = PdfReader(str(path))
+    try:
+        reader = PdfReader(str(path))
+    except Exception as exc:
+        logger.error("Failed to parse PDF %s: %s", path, exc)
+        return {"chunks_stored": 0, "file": path.name, "error": f"Failed to parse PDF: {exc}"}
+
     pages_text: list[tuple[int, str]] = []
     for i, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
+        try:
+            text = page.extract_text() or ""
+        except Exception as exc:
+            logger.warning("Failed to extract text from page %d of %s: %s", i + 1, path.name, exc)
+            continue
         if text.strip():
             pages_text.append((i + 1, text))
 

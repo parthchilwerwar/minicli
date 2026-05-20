@@ -3,11 +3,13 @@ Direct web search tool — DuckDuckGo instant answer + HTML scrape fallback.
 """
 from __future__ import annotations
 
+import logging
 import re
 
 import httpx
 from langchain_core.tools import tool
 
+logger = logging.getLogger("minicli.web_search")
 
 @tool
 async def web_search(query: str) -> str:
@@ -19,6 +21,7 @@ async def web_search(query: str) -> str:
                 "https://api.duckduckgo.com/",
                 params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
             )
+            resp.raise_for_status()
             data = resp.json()
             parts: list[str] = []
 
@@ -34,8 +37,8 @@ async def web_search(query: str) -> str:
 
             if parts:
                 return "\n\n".join(parts)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("DuckDuckGo Instant API failed for '%s': %s", query, exc)
 
     # Fallback: scrape DuckDuckGo HTML lite
     try:
@@ -45,6 +48,7 @@ async def web_search(query: str) -> str:
                 params={"q": query},
                 headers={"User-Agent": "Mozilla/5.0 (compatible; minicli/1.0)"},
             )
+            resp.raise_for_status()
             html = resp.text
             # Extract result snippets from HTML
             snippets = re.findall(r'<td[^>]*class="result-snippet"[^>]*>(.*?)</td>', html, re.DOTALL)
@@ -63,8 +67,8 @@ async def web_search(query: str) -> str:
 
             if results:
                 return "\n\n---\n\n".join(results)
-    except Exception:
-        pass
+    except Exception as exc:
+        logger.warning("DuckDuckGo Lite fallback failed for '%s': %s", query, exc)
 
     return f"No results found for '{query}'."
 

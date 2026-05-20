@@ -82,6 +82,7 @@ async def web_search_node(state: RAGState) -> dict:
                 "https://api.duckduckgo.com/",
                 params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
             )
+            resp.raise_for_status()
             data = resp.json()
             parts: list[str] = []
             if data.get("AbstractText"):
@@ -98,7 +99,7 @@ async def web_search_node(state: RAGState) -> dict:
         results_text = "No web results found."
 
     logger.info("Web search returned %d chars", len(results_text))
-    return {"web_results": results_text, "documents": state.get("documents", []) + [results_text]}
+    return {"web_results": results_text}
 
 
 async def generate_node(state: RAGState) -> dict:

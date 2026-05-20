@@ -141,13 +141,21 @@ async function handleRoute(req: http.IncomingMessage, res: http.ServerResponse):
     return;
   }
 
+const ToolCallBody = z.object({ args: z.record(z.unknown()).optional() });
+
   // ── POST /tool/:name (Python → Node.js tool call) ─────────────────────
   if (method === 'POST' && url.startsWith('/tool/')) {
     const toolName = url.slice(6);
     const tool = ALL_TOOLS.find((t) => t.name === toolName);
     if (!tool) { errReply(res, 404, `Tool not found: ${toolName}`); return; }
     const raw = await readBody(req);
-    const body = JSON.parse(raw) as { args: Record<string, unknown> };
+    let body: z.infer<typeof ToolCallBody>;
+    try {
+      body = parseJson(raw, ToolCallBody);
+    } catch {
+      errReply(res, 400, 'Invalid request body');
+      return;
+    }
     try {
       const result = await tool.execute(body.args ?? {});
       jsonReply(res, 200, { result });

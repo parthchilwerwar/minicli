@@ -38,7 +38,7 @@ def _load_memory_entries() -> list[dict]:
         try:
             idx = json.loads(index_file.read_text(encoding="utf-8"))
             if isinstance(idx, list):
-                entries.extend(idx)
+                entries.extend(e for e in idx if isinstance(e, dict) and "title" in e)
                 return entries
         except (json.JSONDecodeError, KeyError):
             pass

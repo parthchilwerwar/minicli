@@ -7,8 +7,37 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends, Request, Security
+from fastapi.security.api_key import APIKeyHeader
 from pydantic import BaseModel
+import time
+
+from config import BRIDGE_SECRET, DEV_BYPASS_AUTH
+
+# ── Auth & Rate Limiting ─────────────────────────────────────────────────────
+
+api_key_header = APIKeyHeader(name="X-Bridge-Secret", auto_error=False)
+
+def verify_auth(api_key: str = Security(api_key_header)):
+    if DEV_BYPASS_AUTH:
+        return
+    if BRIDGE_SECRET and api_key != BRIDGE_SECRET:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+_client_requests = {}
+REQUESTS_PER_MINUTE = 60
+
+def rate_limit(request: Request):
+    ip = request.client.host if request.client else "unknown"
+    now = time.time()
+    if ip in _client_requests:
+        _client_requests[ip] = [t for t in _client_requests[ip] if now - t < 60]
+    else:
+        _client_requests[ip] = []
+    
+    if len(_client_requests[ip]) >= REQUESTS_PER_MINUTE:
+        raise HTTPException(status_code=429, detail="Too many requests")
+    _client_requests[ip].append(now)
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -90,6 +119,7 @@ app = FastAPI(
     title="minicli Agent Server",
     version="2.0.0",
     lifespan=lifespan,
+    dependencies=[Depends(verify_auth), Depends(rate_limit)]
 )
 
 

@@ -202,4 +202,4 @@ async def process_message(
         return answer
     except Exception as exc:
         logger.error("Supervisor error: %s", exc, exc_info=True)
-        return f"something broke: {exc}"
+        raise
