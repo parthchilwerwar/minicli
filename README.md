@@ -1,5 +1,7 @@
 # minicli
 
+![minicli](miniclii.png)
+
 > Your life, automated.
 
 A personal AI agent that lives in your terminal and Telegram. One command boots a full daemon — agents, memory, tools, web UI, and public tunneling. Built with TypeScript, powered by OpenRouter.
