@@ -103,7 +103,12 @@ export class KnowledgeGraph {
         });
     }
     async search(query, limit = 10) {
-        const q = query.toLowerCase();
+        const q = query.toLowerCase().trim();
+        if (!q) {
+            return [...this.graph.nodes]
+                .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+                .slice(0, limit);
+        }
         const terms = q.split(/\s+/).filter(Boolean);
         const scored = this.graph.nodes.map((node) => {
             let score = 0;
@@ -198,6 +203,9 @@ export class KnowledgeGraph {
     }
     getNodeCount() {
         return this.graph.nodes.length;
+    }
+    getAllNodes() {
+        return this.graph.nodes;
     }
 }
 // ─── Singleton ───────────────────────────────────────────────────────────────

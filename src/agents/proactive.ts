@@ -84,7 +84,7 @@ export class ProactiveAgent implements Agent {
 
       // Load recent graph nodes (last 48h)
       await graph.load();
-      const allNodes = await graph.search('', 50);
+      const allNodes = graph.getAllNodes();
       const cutoff = new Date();
       cutoff.setHours(cutoff.getHours() - 48);
       const recentNodes = allNodes.filter(

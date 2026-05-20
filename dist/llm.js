@@ -60,7 +60,7 @@ export async function callLLM(messages, tools = [], modelOverride, stream = fals
         const shortPrimary = primaryModel.split('/').pop() ?? primaryModel;
         const shortFallback = FALLBACK_MODEL.split('/').pop() ?? FALLBACK_MODEL;
         warn(`${shortPrimary} is rate limited — switching to ${shortFallback}`);
-        res = await fetchLLM(messages, tools, FALLBACK_MODEL, stream);
+        res = await fetchLLM(finalMessages, tools, FALLBACK_MODEL, stream);
     }
     if (!res.ok) {
         const text = await res.text();

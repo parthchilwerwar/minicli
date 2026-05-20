@@ -7,8 +7,7 @@ import type { ConvMessage } from './memory-store.js';
 import { updateUserProfile, loadUserMd } from './persona.js';
 import { getPublicUrl } from './web-server.js';
 import { setBotRef } from './agents/base.js';
-import { lifeOsAgent, devBuilderAgent, tradingAgent, oppContentAgent } from './agents/registry.js';
-import { routeToSubAgent } from './agents/sub-agent-router.js';
+// Sub-agent routing is now handled by Python LangGraph supervisor
 import { isGmailConnected } from './gmail-mcp.js';
 import { messageQueue } from './queue.js';
 import { asyncTasks } from './async-tasks.js';
@@ -204,9 +203,33 @@ export async function startTelegramBot(): Promise<string | null> {
     if (!isAllowed(msg)) return;
     const sub = match?.[1]?.trim() ?? 'active';
     if (sub === 'active' || sub === '') {
-      void bot?.sendMessage(msg.chat.id, asyncTasks.formatActive());
+      void bot?.sendMessage(msg.chat.id, asyncTasks.formatActive()).catch(() => {});
+    } else if (sub === 'all') {
+      const all = asyncTasks.listAll();
+      if (all.length === 0) {
+        void bot?.sendMessage(msg.chat.id, '📋 No background tasks.').catch(() => {});
+        return;
+      }
+      const lines = all.map(
+        (t) => `[${t.id}] ${t.status === 'running' ? '⚙️' : t.status === 'done' ? '✅' : '❌'} ${t.description}\n   started: ${t.startedAt}`
+      );
+      void bot?.sendMessage(msg.chat.id, `📋 All tasks (${all.length})\n\n${lines.join('\n\n')}`).catch(() => {});
     } else {
-      void bot?.sendMessage(msg.chat.id, asyncTasks.formatActive());
+      const task = asyncTasks.getStatus(sub);
+      if (!task) {
+        void bot?.sendMessage(msg.chat.id, `❌ Task ${sub} not found.`).catch(() => {});
+        return;
+      }
+      const lines = [
+        `Task: ${task.description}`,
+        `ID: ${task.id}`,
+        `Status: ${task.status === 'running' ? '⚙️ running' : task.status === 'done' ? '✅ done' : '❌ failed'}`,
+        `Started: ${task.startedAt}`,
+      ];
+      if (task.result) {
+        lines.push(`\nResult:\n${task.result.slice(0, 3000)}`);
+      }
+      void bot?.sendMessage(msg.chat.id, lines.join('\n')).catch(() => {});
     }
   });
 
@@ -327,48 +350,9 @@ export async function startTelegramBot(): Promise<string | null> {
     void (async () => {
       const text = msg.text ?? '';
 
-      // 0. Sub-agent router (news, etc.)
-      try {
-        const routed = await routeToSubAgent(text);
-        if (routed.triggered && routed.response) {
-          const cleaned = cleanResponse(routed.response);
-          void bot?.sendMessage(msg.chat.id, cleaned);
-          appendHistory(msg.chat.id, 'user', text);
-          appendHistory(msg.chat.id, 'assistant', cleaned);
-          return;
-        }
-      } catch { /* fall through to main loop */ }
+      // All routing handled by Python supervisor — go straight to queue
 
-      // 1. Content commands (tweet this:, linkedin post about, etc.)
-      const contentCmd = detectContentCmd(text);
-      if (contentCmd) {
-        const t = await bot?.sendMessage(msg.chat.id, '⏳ Generating...');
-        try {
-          const result = await oppContentAgent.generateContent(contentCmd.type, contentCmd.topic);
-          if (t) await sendResult(msg.chat.id, t.message_id, result);
-        } catch { if (t) await bot?.editMessageText('❌ Generation failed.', { chat_id: msg.chat.id, message_id: t.message_id }); }
-        return;
-      }
-
-      // 2. URL detection → research capture
-      const urlMatch = text.match(URL_REGEX);
-      if (urlMatch) {
-        const t = await bot?.sendMessage(msg.chat.id, '⏳ Analyzing URL...');
-        try {
-          const result = await tradingAgent.interceptUrl(urlMatch[0]);
-          if (result && t) { await sendResult(msg.chat.id, t.message_id, result); return; }
-        } catch { /* fall through */ }
-        if (t) await bot?.editMessageText('⏳ Processing...', { chat_id: msg.chat.id, message_id: t.message_id });
-      }
-
-      // 3. Life OS capture intercept
-      const captured = await lifeOsAgent.intercept(text);
-      if (captured.handled) {
-        void bot?.sendMessage(msg.chat.id, cleanResponse(captured.response ?? 'minicli captured ✓'));
-        return;
-      }
-
-      // 4. Task-query shortcut
+      // Task-query shortcut (local, fast)
       const taskReply = handleTaskQuery(text);
       if (taskReply) { void bot?.sendMessage(msg.chat.id, cleanResponse(taskReply)); return; }
 

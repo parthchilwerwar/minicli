@@ -98,7 +98,7 @@ export async function callLLM(
     const shortFallback = FALLBACK_MODEL.split('/').pop() ?? FALLBACK_MODEL;
     warn(`${shortPrimary} is rate limited — switching to ${shortFallback}`);
 
-    res = await fetchLLM(messages, tools, FALLBACK_MODEL, stream);
+    res = await fetchLLM(finalMessages, tools, FALLBACK_MODEL, stream);
   }
 
   if (!res.ok) {

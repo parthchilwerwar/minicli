@@ -222,7 +222,6 @@ export function generateHtml(): string {
 
 <div id="topbar">
   <div id="logo">
-    <div id="logo-dot"></div>
     minicli
     <span id="logo-sub">/ Parth</span>
   </div>

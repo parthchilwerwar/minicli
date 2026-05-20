@@ -9,7 +9,8 @@ import { startBridgeServer, stopBridgeServer } from './bridge.js';
 import { startScheduler } from './routine.js';
 import { autoGeneratePersona } from './persona.js';
 import { sendToTelegram } from './agents/base.js';
-import { graph } from './knowledge-graph.js';
+import { startPythonServer, stopPythonServer } from './python-bridge.js';
+import { getBridgePort } from './config.js';
 // ─── Config ──────────────────────────────────────────────────────────────────
 const LIME = chalk.hex('#b5f300');
 const WHITE = chalk.white;
@@ -68,7 +69,7 @@ export async function startDaemon() {
     await sleep(300);
     try {
         await startBridgeServer();
-        printStatus('Webhooks', ':6276');
+        printStatus('Webhooks', `:${getBridgePort()}`);
     }
     catch (err) {
         process.stdout.write(`  ${chalk.red('✗')} ${WHITE('Webhooks'.padEnd(20))}${chalk.red(err instanceof Error ? err.message : 'failed')}\n`);
@@ -99,29 +100,25 @@ export async function startDaemon() {
     catch {
         printStatus('Gmail MCP', 'not configured');
     }
-    // Knowledge graph
+    // Python Agent Server (LangGraph)
     await sleep(300);
     try {
-        await graph.load();
-        const nodeCount = graph.getNodeCount();
-        printStatus('Knowledge graph', `${nodeCount} nodes loaded`);
+        await startPythonServer();
+        printStatus('Agent Server', ':6280 (LangGraph)');
     }
-    catch {
-        printStatus('Knowledge graph', 'empty (new)');
+    catch (err) {
+        process.stdout.write(`  ${chalk.red('✗')} ${WHITE('Agent Server'.padEnd(20))}${chalk.red(err instanceof Error ? err.message : 'failed')}\n`);
     }
     // Queue
     await sleep(200);
     printStatus('Queue', 'ready');
-    // Agents
-    await sleep(300);
+    // Legacy TS agents (now managed by Python)
+    await sleep(200);
     try {
         await startAllAgents();
     }
     catch { /* best-effort */ }
-    printStatus('Supervisor', 'online');
-    printStatus('Proactive', 'every 4h');
-    printStatus('Agents', 'life-os, dev, trading, opportunity, news');
-    printStatus('Memory reviewer', 'sunday midnight');
+    printStatus('Agents', 'supervisor, life-os, dev, research, content, proactive');
     // Start cron scheduler
     startScheduler();
     // Auto-generate persona (first run)
@@ -145,6 +142,10 @@ export async function startDaemon() {
         process.stdout.write(`\n  ${DIM('stopping minicli...')}\n`);
         try {
             await stopAllAgents();
+        }
+        catch { /* */ }
+        try {
+            stopPythonServer();
         }
         catch { /* */ }
         try {

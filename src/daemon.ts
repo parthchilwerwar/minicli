@@ -9,7 +9,8 @@ import { startBridgeServer, stopBridgeServer } from './bridge.js';
 import { startScheduler } from './routine.js';
 import { autoGeneratePersona } from './persona.js';
 import { sendToTelegram } from './agents/base.js';
-import { graph } from './knowledge-graph.js';
+import { startPythonServer, stopPythonServer } from './python-bridge.js';
+import { getBridgePort } from './config.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -81,7 +82,7 @@ export async function startDaemon(): Promise<void> {
   await sleep(300);
   try {
     await startBridgeServer();
-    printStatus('Webhooks', ':6276');
+    printStatus('Webhooks', `:${getBridgePort()}`);
   } catch (err: unknown) {
     process.stdout.write(`  ${chalk.red('✗')} ${WHITE('Webhooks'.padEnd(20))}${chalk.red(err instanceof Error ? err.message : 'failed')}\n`);
   }
@@ -111,29 +112,25 @@ export async function startDaemon(): Promise<void> {
     printStatus('Gmail MCP', 'not configured');
   }
 
-  // Knowledge graph
+  // Python Agent Server (LangGraph)
   await sleep(300);
   try {
-    await graph.load();
-    const nodeCount = graph.getNodeCount();
-    printStatus('Knowledge graph', `${nodeCount} nodes loaded`);
-  } catch {
-    printStatus('Knowledge graph', 'empty (new)');
+    await startPythonServer();
+    printStatus('Agent Server', ':6280 (LangGraph)');
+  } catch (err: unknown) {
+    process.stdout.write(`  ${chalk.red('✗')} ${WHITE('Agent Server'.padEnd(20))}${chalk.red(err instanceof Error ? err.message : 'failed')}\n`);
   }
 
   // Queue
   await sleep(200);
   printStatus('Queue', 'ready');
 
-  // Agents
-  await sleep(300);
+  // Legacy TS agents (now managed by Python)
+  await sleep(200);
   try {
     await startAllAgents();
   } catch { /* best-effort */ }
-  printStatus('Supervisor', 'online');
-  printStatus('Proactive', 'every 4h');
-  printStatus('Agents', 'life-os, dev, trading, opportunity, news');
-  printStatus('Memory reviewer', 'sunday midnight');
+  printStatus('Agents', 'supervisor, life-os, dev, research, content, proactive');
 
   // Start cron scheduler
   startScheduler();
@@ -159,6 +156,7 @@ export async function startDaemon(): Promise<void> {
   const shutdown = async () => {
     process.stdout.write(`\n  ${DIM('stopping minicli...')}\n`);
     try { await stopAllAgents(); } catch { /* */ }
+    try { stopPythonServer(); } catch { /* */ }
     try { await stopTunnel(); } catch { /* */ }
     try { stopWebServer(); } catch { /* */ }
     try { stopBridgeServer(); } catch { /* */ }

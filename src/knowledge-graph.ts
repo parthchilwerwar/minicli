@@ -128,7 +128,13 @@ export class KnowledgeGraph {
   }
 
   async search(query: string, limit = 10): Promise<Node[]> {
-    const q = query.toLowerCase();
+    const q = query.toLowerCase().trim();
+    if (!q) {
+      return [...this.graph.nodes]
+        .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+        .slice(0, limit);
+    }
+
     const terms = q.split(/\s+/).filter(Boolean);
 
     const scored = this.graph.nodes.map((node) => {
@@ -239,6 +245,10 @@ export class KnowledgeGraph {
 
   getNodeCount(): number {
     return this.graph.nodes.length;
+  }
+
+  getAllNodes(): Node[] {
+    return this.graph.nodes;
   }
 }
 

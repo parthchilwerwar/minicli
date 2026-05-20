@@ -37,8 +37,8 @@ export declare const ResearchSchema: z.ZodObject<{
     title: string;
     summary: string;
     url: string;
-    keyPoints: string[];
     savedAt: string;
+    keyPoints: string[];
     linkedProjects: string[];
 }, {
     id: string;
@@ -46,8 +46,8 @@ export declare const ResearchSchema: z.ZodObject<{
     title: string;
     summary: string;
     url: string;
-    keyPoints: string[];
     savedAt: string;
+    keyPoints: string[];
     linkedProjects: string[];
 }>;
 export type WatchlistItem = z.infer<typeof WatchlistSchema>;

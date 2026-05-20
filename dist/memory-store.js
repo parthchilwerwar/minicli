@@ -206,22 +206,13 @@ export function getTasksByDate(isoDate) {
 /** Returns all tasks regardless of due date. */
 export function getAllTasks() {
     const index = loadIndex();
-    const taskEntries = index.filter((e) => {
+    return index.map((e) => {
         const file = join(MEM_DIR, e.date, `${e.id}.json`);
         if (!existsSync(file))
-            return false;
+            return null;
         try {
             const mem = MemoryEntrySchema.parse(JSON.parse(readFileSync(file, 'utf-8')));
-            return mem.type === 'task';
-        }
-        catch {
-            return false;
-        }
-    });
-    return taskEntries.map((e) => {
-        const file = join(MEM_DIR, e.date, `${e.id}.json`);
-        try {
-            return MemoryEntrySchema.parse(JSON.parse(readFileSync(file, 'utf-8')));
+            return mem.type === 'task' ? mem : null;
         }
         catch {
             return null;

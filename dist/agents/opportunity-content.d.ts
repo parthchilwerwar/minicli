@@ -17,9 +17,9 @@ export declare const OpportunitySchema: z.ZodObject<{
     description: string;
     url: string;
     deadline: string | null;
-    savedAt: string;
     relevanceScore: number;
     seen: boolean;
+    savedAt: string;
 }, {
     type: "tool" | "hackathon" | "internship" | "bounty";
     id: string;
@@ -27,9 +27,9 @@ export declare const OpportunitySchema: z.ZodObject<{
     description: string;
     url: string;
     deadline: string | null;
-    savedAt: string;
     relevanceScore: number;
     seen: boolean;
+    savedAt: string;
 }>;
 export declare const ContentLogSchema: z.ZodObject<{
     id: z.ZodString;

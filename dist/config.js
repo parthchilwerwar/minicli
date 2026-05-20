@@ -33,8 +33,8 @@ export function getApiKey() {
         throw new Error('OPENROUTER_API_KEY not set. Add it to .env in the minicli project folder.');
     return key;
 }
-export const PRIMARY_MODEL = 'openrouter/elephant-alpha';
-export const FALLBACK_MODEL = 'qwen/qwen3-coder:free';
+export const PRIMARY_MODEL = 'google/gemma-4-31b-it:free';
+export const FALLBACK_MODEL = 'qwen/qwen3-next-80b-a3b-instruct:free';
 export function getModel(override) {
     return override
         ?? process.env['OPENROUTER_MODEL']

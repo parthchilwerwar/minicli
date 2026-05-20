@@ -2,7 +2,7 @@ import * as http from 'http';
 import { z } from 'zod';
 import { getBridgePort, getBridgeSecret, getVaultPath, getDesktopPath, getDownloadsPath } from './config.js';
 import { loadNotes, loadRoutines, loadContext } from './memory.js';
-import { runAgent } from './agent.js';
+import { callPythonAgent } from './python-bridge.js';
 import { ALL_TOOLS } from './tools/registry.js';
 import type { Message } from './memory.js';
 
@@ -141,36 +141,31 @@ async function handleRoute(req: http.IncomingMessage, res: http.ServerResponse):
     return;
   }
 
-  // ── POST /execute (agent loop) ──────────────────────────────────────────
+  // ── POST /tool/:name (Python → Node.js tool call) ─────────────────────
+  if (method === 'POST' && url.startsWith('/tool/')) {
+    const toolName = url.slice(6);
+    const tool = ALL_TOOLS.find((t) => t.name === toolName);
+    if (!tool) { errReply(res, 404, `Tool not found: ${toolName}`); return; }
+    const raw = await readBody(req);
+    const body = JSON.parse(raw) as { args: Record<string, unknown> };
+    try {
+      const result = await tool.execute(body.args ?? {});
+      jsonReply(res, 200, { result });
+    } catch (err: unknown) {
+      errReply(res, 500, err instanceof Error ? err.message : String(err));
+    }
+    return;
+  }
+
+  // ── POST /execute (proxied to Python agent server) ─────────────────────
   if (method === 'POST' && url === '/execute') {
     const raw = await readBody(req);
     const body = parseJson(raw, ExecuteBody);
-    const notesCtx = loadNotes().slice(-5).map((n) => `[note] ${n.text}`).join('\n');
-
-    // Inject tasks due today and tomorrow so the LLM can answer task queries
-    const { getTasksByDate } = await import('./memory-store.js');
-    const todayStr    = new Date().toISOString().slice(0, 10);
-    const tmrDate     = new Date(); tmrDate.setDate(tmrDate.getDate() + 1);
-    const tomorrowStr = tmrDate.toISOString().slice(0, 10);
-    const todayTasks  = getTasksByDate(todayStr);
-    const tmrTasks    = getTasksByDate(tomorrowStr);
-    const taskCtx = [
-      todayTasks.length  ? `Tasks due today (${todayStr}):\n${todayTasks.map((t) => `- ${t.messages[0]?.content ?? t.title}`).join('\n')}` : '',
-      tmrTasks.length    ? `Tasks due tomorrow (${tomorrowStr}):\n${tmrTasks.map((t) => `- ${t.messages[0]?.content ?? t.title}`).join('\n')}` : '',
-    ].filter(Boolean).join('\n\n');
-
-    const system: Message = {
-      role: 'system',
-      content: `You are minicli, a personal AI assistant for Parth, with access to filesystem, vault, notes, and tools.\nUser notes:\n${notesCtx || 'none'}${taskCtx ? `\n\n${taskCtx}` : ''}\n\nIMPORTANT: You have full conversation history. Always use prior context to answer follow-up questions. If a file was previously found, remember its path.`,
-    };
-
-    // Build message history: system + prior turns + current message
-    const priorMsgs: Message[] = (body.history ?? []).map((m) => ({
-      role: m.role as Message['role'],
+    const history = (body.history ?? []).map((m) => ({
+      role: m.role,
       content: m.content,
     }));
-
-    const result = await runAgent(body.message, ALL_TOOLS, [system, ...priorMsgs], false);
+    const result = await callPythonAgent(body.message, 'bridge', history);
     jsonReply(res, 200, { result });
     return;
   }

@@ -79,7 +79,7 @@ export async function sendToTelegram(message: string): Promise<void> {
       await _botRef.sendMessage(_allowedUserId, part, { parse_mode: 'Markdown' });
     } catch {
       try {
-        await _botRef.sendMessage(_allowedUserId, part.replace(/[*_`[\]()~>#+=|{}.!-]/g, '\\$&'));
+        await _botRef.sendMessage(_allowedUserId, part);
       } catch { /* best-effort */ }
     }
   }

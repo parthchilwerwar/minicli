@@ -4,23 +4,47 @@
 
 > Your life, automated.
 
-A personal AI agent that lives in your terminal and Telegram. One command boots a full daemon — agents, memory, tools, web UI, and public tunneling. Built with TypeScript, powered by OpenRouter.
+A personal AI agent that lives in your terminal and Telegram. One command boots a full daemon — real LangGraph agents, RAG pipeline, vector memory, tools, web UI, and public tunneling. Split-brain architecture: Node.js for infrastructure, Python for intelligence.
 
 ---
 
 ## What it does
 
 - **Telegram interface** — send commands or plain English, get things done
-- **6 autonomous agents** — run on schedules: morning briefs, dev check-ins, market updates, opportunity digests, proactive insights, memory cleanup
-- **42 tools** — files, shell, GitHub, Gmail, Google Calendar, TickTick, Obsidian, web search, news
-- **Persistent memory** — knowledge graph + conversation history, auto-linked and searchable
+- **6 real LangGraph agents** — supervisor routes to: Life OS, Dev, Research, Content, Proactive
+- **Corrective RAG pipeline** — retrieves from knowledge base, grades relevance, falls back to web search, checks for hallucination
+- **ChromaDB vector memory** — semantic search across memories, documents, and tasks (replaces JSON files)
+- **PDF ingestion** — chunk, embed, and store PDFs on command
+- **37 bridge tools** — files, shell, GitHub, Gmail, Google Calendar, TickTick, Obsidian, web search, news
 - **Public web UI** — accessible from anywhere via Cloudflare tunnel
+
+---
+
+## Architecture
+
+```
+┌────────────────┐       HTTP        ┌─────────────────────┐
+│   Node.js      │◄───────────────►│   Python (FastAPI)    │
+│   :6275        │   /tool/:name    │   :6280               │
+│                │   /execute       │                       │
+│  • Telegram    │                  │  • LangGraph Agents   │
+│  • Web UI      │                  │  • ChromaDB Memory    │
+│  • Queue       │                  │  • RAG Pipeline       │
+│  • 37 Tools    │                  │  • PDF Ingestion      │
+│  • Tunnel      │                  │  • APScheduler        │
+└────────────────┘                  └─────────────────────┘
+```
+
+- **Node.js** handles infrastructure: Telegram bot, web server, Cloudflare tunnel, tool execution
+- **Python** handles intelligence: agent routing, LLM calls, memory search, RAG, scheduling
+- Communication via HTTP: Python calls Node.js tools via `POST /tool/:name`, Node.js routes messages to Python via `POST /chat`
 
 ---
 
 ## Prerequisites
 
 - Node.js 18+
+- Python 3.11+
 - A [Telegram bot token](https://t.me/BotFather)
 - An [OpenRouter API key](https://openrouter.ai) (free tier works)
 - `cloudflared` installed ([download](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/))
@@ -38,7 +62,17 @@ npm install
 npm install -g .
 ```
 
-**2. Install cloudflared**
+**2. Install Python dependencies**
+
+```bash
+cd python
+pip install -r requirements.txt
+cd ..
+```
+
+> First run will download the embedding model (~35 MB) for local vector search.
+
+**3. Install cloudflared**
 
 ```bash
 # macOS
@@ -52,7 +86,7 @@ chmod +x cloudflared && sudo mv cloudflared /usr/local/bin/
 winget install cloudflare.cloudflared
 ```
 
-**3. Configure environment**
+**4. Configure environment**
 
 ```bash
 cp .env.example .env
@@ -66,7 +100,7 @@ Open `.env` and fill in at minimum:
 | `TELEGRAM_BOT_TOKEN` | Token from @BotFather |
 | `TELEGRAM_ALLOWED_USER_ID` | Your Telegram user ID (get it from @userinfobot) |
 
-**4. Build and run**
+**5. Build and run**
 
 ```bash
 npm run build
@@ -75,6 +109,8 @@ mini
 
 You should see all services come online in your terminal. **Your Telegram bot is now live.**
 
+On first run, existing JSON memories and knowledge graph data will be automatically migrated to ChromaDB.
+
 ---
 
 ## Optional integrations
@@ -82,7 +118,7 @@ You should see all services come online in your terminal. **Your Telegram bot is
 Set these in `.env` to unlock more features:
 
 | Variable | Feature |
-|----------|---------|
+|----------|---------| 
 | `GITHUB_TOKEN` | PR/issue/CI tracking |
 | `TICKTICK_ACCESS_TOKEN` | Task management |
 | `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` + `GMAIL_REFRESH_TOKEN` | Gmail + Google Calendar |
@@ -110,54 +146,124 @@ Everything goes through your **Telegram bot**. Type commands or just talk natura
 | `/gmail search <q>` | Search emails |
 | `/news [topic]` | News briefing |
 | `/memory` | Recent conversation memories |
-| `/search <query>` | Search memory |
+| `/search <query>` | Semantic search across memory |
 | `/status` | Full daemon status |
 | `/web` | Your public web UI link |
 | `/help` | All commands |
 
 ### Natural language examples
 
-Just type — minicli routes to the right agent automatically:
+Just type — the supervisor agent routes to the right worker automatically:
 
 ```
-"what's bitcoin at?"          → Trading agent
-"remind me to submit the PR"  → Life OS (task capture)
-"any open PRs?"               → Dev agent
-"tweet this: just shipped v2" → Content generator
-"any hackathons this week?"   → Opportunity agent
-"latest AI news"              → News agent
+"what's on my calendar?"       → Life OS agent (tasks, calendar)
+"remind me to submit the PR"   → Life OS agent (task capture)
+"any open PRs on minicli?"     → Dev agent (GitHub, code)
+"tweet this: just shipped v2"  → Content agent (generation)
+"latest AI news"               → Research agent (web search, news)
+"summarize this PDF"           → Research agent (PDF ingestion + RAG)
 ```
 
 **Smart extras:**
-- Paste a URL → auto-analyzed and saved to memory
-- `tweet this:` / `linkedin post about` / `readme for` → content generated instantly
+- Paste a URL → analyzed by the research agent
+- Send a PDF → ingest into knowledge base on command
+- All interactions are auto-saved to vector memory
 
 ---
 
 ## Agents
 
-Agents run automatically on a schedule and can also be triggered via chat.
+Real LangGraph agents with tool calling — not cron scripts with prompts.
 
-| Agent | Schedule | What it does |
-|-------|----------|-------------|
-| 🌅 Life OS | 7am + 11pm | Morning brief, night review, task capture |
-| 💻 Dev & Builder | 9:30am daily | GitHub PRs, CI status, issues |
-| 📈 Trading + Research | 8am weekdays | Crypto prices, market alerts, URL analysis |
-| 🎯 Opportunity + Content | Monday 9am | Hackathons, internships, content generation |
-| 🧠 Proactive | Every 4h | Autonomous insights from your knowledge graph |
-| 🗂️ Memory Reviewer | Sunday midnight | Prunes stale memories, reports graph stats |
+| Agent | Role | Tools |
+|-------|------|-------|
+| 🧠 **Supervisor** | Routes messages to the right worker | All worker agents + memory + search |
+| 🌅 **Life OS** | Tasks, habits, reminders, daily planning | TickTick, Calendar, memory |
+| 💻 **Dev & Builder** | GitHub, code review, shell, repos | GitHub, Git, shell, filesystem |
+| 🔬 **Research** | Web research, news, PDF ingestion | Web search, RSS, Obsidian, PDF ingest |
+| ✍️ **Content** | Tweets, LinkedIn, READMEs | Memory, web search, Obsidian |
+| 🔔 **Proactive** | Autonomous insights (every 4h) | Memory search, task check |
 
-Customize schedules via cron variables in `.env` (e.g. `LIFE_OS_MORNING_CRON=0 7 * * *`).
+The proactive agent runs on a 4-hour schedule via APScheduler and sends Telegram messages when something needs attention.
 
 ---
 
-## Memory
+## Memory & RAG
 
-minicli stores everything in `~/.minicli/`:
+minicli uses **ChromaDB** for all persistence with `sentence-transformers/all-MiniLM-L6-v2` embeddings:
 
-- **`graph.json`** — knowledge graph with typed nodes (tasks, people, projects, facts) and edges
-- **`memories/`** — full conversation history, timestamped and searchable
-- **`USER.md`** — auto-generated persona, updated as you chat, injected into every LLM call
+| Collection | What's stored |
+|------------|---------------|
+| `memories` | Conversations, facts, decisions, user preferences |
+| `documents` | PDF chunks, ingested knowledge |
+| `tasks` | Tasks, reminders, deadlines |
+
+### Corrective RAG Pipeline
+
+When you ask a knowledge question:
+
+```
+1. RETRIEVE  → search ChromaDB for relevant documents
+2. GRADE     → LLM grades each doc for relevance
+3. GENERATE  → answer from relevant docs
+   └── if docs irrelevant:
+       REWRITE → better search query
+       WEB SEARCH → DuckDuckGo fallback
+       GENERATE → answer from web results
+4. HALLUCINATION CHECK → verify answer is grounded
+```
+
+### PDF Ingestion
+
+Send a PDF path to minicli and ask it to ingest:
+```
+"ingest the PDF at C:/Users/me/paper.pdf"
+```
+
+The PDF is chunked (1000 chars, 200 overlap), embedded, and stored in the `documents` collection for future RAG queries.
+
+---
+
+## Project structure
+
+```
+minicli/
+├── src/                    # Node.js infrastructure
+│   ├── daemon.ts           # Startup orchestrator
+│   ├── bridge.ts           # HTTP bridge (tools + Python proxy)
+│   ├── python-bridge.ts    # Python server lifecycle
+│   ├── telegram.ts         # Telegram bot
+│   ├── queue.ts            # FIFO message queue
+│   ├── web-server.ts       # Web UI
+│   ├── tunnel.ts           # Cloudflare tunnel
+│   └── tools/              # 37 Node.js tools
+├── python/                 # Python intelligence layer
+│   ├── server.py           # FastAPI entry point (:6280)
+│   ├── config.py           # Environment + paths
+│   ├── llm.py              # OpenRouter LLM adapter
+│   ├── agents/
+│   │   ├── supervisor.py   # Main routing agent
+│   │   ├── life_os.py      # Life OS worker
+│   │   ├── dev_builder.py  # Dev worker
+│   │   ├── research.py     # Research worker
+│   │   ├── content.py      # Content worker
+│   │   └── proactive.py    # Proactive agent
+│   ├── memory/
+│   │   ├── vector_store.py # ChromaDB manager
+│   │   ├── migration.py    # JSON → ChromaDB migration
+│   │   └── conversation.py # Thread management
+│   ├── rag/
+│   │   ├── pipeline.py     # Corrective RAG graph
+│   │   ├── grader.py       # Relevance + hallucination grading
+│   │   └── pdf_ingest.py   # PDF chunking + embedding
+│   ├── tools/
+│   │   ├── bridge.py       # Node.js tool proxies
+│   │   ├── memory_tools.py # Direct ChromaDB tools
+│   │   └── web_search.py   # DuckDuckGo search
+│   └── scheduler/
+│       └── cron.py         # APScheduler (proactive, cleanup)
+└── .env                    # Configuration
+```
 
 ---
 
@@ -171,6 +277,8 @@ pm2 save
 ```
 
 **With systemd (Linux):** create `/etc/systemd/system/minicli.service`, point `ExecStart` at `dist/index.js`, set `EnvironmentFile` to your `.env`, then `systemctl enable --now minicli`.
+
+> The daemon automatically spawns the Python server as a child process. No need to run it separately.
 
 ---
 

@@ -1,0 +1,1 @@
+{"version":3,"file":"python-bridge.d.ts","sourceRoot":"","sources":["../src/python-bridge.ts"],"names":[],"mappings":"AASA,wBAAsB,iBAAiB,IAAI,OAAO,CAAC,IAAI,CAAC,CA6CvD;AAED,wBAAgB,gBAAgB,IAAI,IAAI,CAKvC;AAED,wBAAsB,eAAe,CACnC,OAAO,EAAE,MAAM,EACf,MAAM,EAAE,MAAM,EACd,OAAO,GAAE;IAAE,IAAI,EAAE,MAAM,CAAC;IAAC,OAAO,EAAE,MAAM,CAAA;CAAE,EAAO,GAChD,OAAO,CAAC,MAAM,CAAC,CAcjB"}

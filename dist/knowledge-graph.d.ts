@@ -64,6 +64,7 @@ export declare class KnowledgeGraph {
     prune(olderThanDays: number, types: Node['type'][]): Promise<number>;
     summarize(): Promise<string>;
     getNodeCount(): number;
+    getAllNodes(): Node[];
 }
 export declare const graph: KnowledgeGraph;
 export {};
