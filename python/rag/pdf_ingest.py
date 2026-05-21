@@ -1,15 +1,22 @@
 """
 PDF ingestion — load, chunk, embed, store in ChromaDB 'documents' collection.
 Triggered only on explicit user command.
+
+The path is sandboxed to the configured user-facing roots (VAULT_PATH,
+DESKTOP_PATH, DOWNLOADS_PATH, NOTES_FOLDER_PATH). This prevents an LLM
+prompt-injection from pointing /ingest at e.g. /etc/shadow and dumping its
+contents into the searchable vector store.
 """
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pypdf import PdfReader
 
+from config import DESKTOP_PATH, DOWNLOADS_PATH, NOTES_PATH, VAULT_PATH
 from memory.vector_store import get_store
 
 logger = logging.getLogger("minicli.pdf_ingest")
@@ -18,16 +25,51 @@ CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 200
 
 
+def _allowed_roots() -> list[Path]:
+    roots: list[Path] = []
+    for raw in (VAULT_PATH, DESKTOP_PATH, DOWNLOADS_PATH, NOTES_PATH):
+        if raw:
+            try:
+                roots.append(Path(raw).expanduser().resolve())
+            except Exception:
+                continue
+    return roots
+
+
+def _assert_within_allowed(path: Path) -> None:
+    roots = _allowed_roots()
+    if not roots:
+        raise PermissionError(
+            "No allowed directories configured. Set VAULT_PATH / DESKTOP_PATH / "
+            "DOWNLOADS_PATH / NOTES_FOLDER_PATH in .env to enable PDF ingestion."
+        )
+    for root in roots:
+        try:
+            # is_relative_to is 3.9+, manual check for portability
+            if path == root or root in path.parents:
+                return
+        except Exception:
+            continue
+    raise PermissionError(f"PDF path is outside allowed roots: {path}")
+
+
 async def ingest_pdf(file_path: str) -> dict:
     """
     Read a PDF, split into chunks, embed each chunk, store in 'documents' collection.
     Returns stats dict.
     """
-    path = Path(file_path).resolve()
+    path = Path(file_path).expanduser().resolve()
     if not path.exists():
         raise FileNotFoundError(f"PDF not found: {file_path}")
     if path.suffix.lower() != ".pdf":
         raise ValueError(f"Not a PDF file: {path.name}")
+    _assert_within_allowed(path)
+
+    # Refuse symlinks pointing outside the allowed roots even if the link
+    # target resolves there indirectly.
+    if path.is_symlink():
+        target = Path(os.path.realpath(path))
+        _assert_within_allowed(target)
 
     # Extract text from all pages
     try:

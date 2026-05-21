@@ -24,8 +24,10 @@ def verify_auth(api_key: str = Security(api_key_header)):
     if BRIDGE_SECRET and api_key != BRIDGE_SECRET:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
-_client_requests = {}
+_client_requests: dict[str, list[float]] = {}
 REQUESTS_PER_MINUTE = 60
+MAX_TRACKED_CLIENTS = 1024
+
 
 def rate_limit(request: Request):
     ip = request.client.host if request.client else "unknown"
@@ -33,8 +35,17 @@ def rate_limit(request: Request):
     if ip in _client_requests:
         _client_requests[ip] = [t for t in _client_requests[ip] if now - t < 60]
     else:
+        # Garbage-collect stale clients before adding a new one so the map
+        # can't grow without bound from spurious IPs.
+        if len(_client_requests) >= MAX_TRACKED_CLIENTS:
+            stale = [
+                k for k, ts in _client_requests.items()
+                if not ts or now - ts[-1] > 60
+            ]
+            for k in stale[: max(1, len(_client_requests) // 4)]:
+                _client_requests.pop(k, None)
         _client_requests[ip] = []
-    
+
     if len(_client_requests[ip]) >= REQUESTS_PER_MINUTE:
         raise HTTPException(status_code=429, detail="Too many requests")
     _client_requests[ip].append(now)

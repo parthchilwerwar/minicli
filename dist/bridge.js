@@ -136,6 +136,7 @@ async function handleRoute(req, res) {
         jsonReply(res, 200, { result });
         return;
     }
+    const ToolCallBody = z.object({ args: z.record(z.unknown()).optional() });
     // ── POST /tool/:name (Python → Node.js tool call) ─────────────────────
     if (method === 'POST' && url.startsWith('/tool/')) {
         const toolName = url.slice(6);
@@ -145,7 +146,14 @@ async function handleRoute(req, res) {
             return;
         }
         const raw = await readBody(req);
-        const body = JSON.parse(raw);
+        let body;
+        try {
+            body = parseJson(raw, ToolCallBody);
+        }
+        catch {
+            errReply(res, 400, 'Invalid request body');
+            return;
+        }
         try {
             const result = await tool.execute(body.args ?? {});
             jsonReply(res, 200, { result });

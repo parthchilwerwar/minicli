@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { randomUUID } from 'crypto';
@@ -37,6 +37,14 @@ const GraphSchema = z.object({
 export class KnowledgeGraph {
     graphPath = join(homedir(), '.minicli', 'graph.json');
     graph = { nodes: [], edges: [] };
+    // Serialize concurrent writes so a save mid-search can't truncate the file.
+    // Every save() chains off this promise.
+    writeQueue = Promise.resolve();
+    // search() bumps accessCount on every hit, which previously fsync'd the
+    // entire graph on every call (with no synchronization). We now batch:
+    // increment in memory, persist at most once per ACCESS_SAVE_INTERVAL_MS.
+    lastAccessSaveAt = 0;
+    static ACCESS_SAVE_INTERVAL_MS = 30_000;
     async load() {
         const dir = join(homedir(), '.minicli');
         if (!existsSync(dir))
@@ -54,16 +62,35 @@ export class KnowledgeGraph {
             this.graph = { nodes: [], edges: [] };
         }
     }
+    /** Atomic, serialized save: write to tmp then rename. */
     async save() {
-        const dir = join(homedir(), '.minicli');
-        if (!existsSync(dir))
-            mkdirSync(dir, { recursive: true });
-        const data = {
-            nodes: this.graph.nodes,
-            edges: this.graph.edges,
-            lastUpdated: new Date().toISOString(),
-        };
-        writeFileSync(this.graphPath, JSON.stringify(data, null, 2));
+        const next = this.writeQueue.then(() => this.writeNow());
+        // Swallow rejection so one failed write doesn't block the queue.
+        this.writeQueue = next.catch(() => undefined);
+        await next;
+    }
+    writeNow() {
+        return new Promise((resolve) => {
+            try {
+                const dir = join(homedir(), '.minicli');
+                if (!existsSync(dir))
+                    mkdirSync(dir, { recursive: true });
+                const data = {
+                    nodes: this.graph.nodes,
+                    edges: this.graph.edges,
+                    lastUpdated: new Date().toISOString(),
+                };
+                const tmp = `${this.graphPath}.tmp.${process.pid}.${Date.now()}`;
+                writeFileSync(tmp, JSON.stringify(data, null, 2));
+                renameSync(tmp, this.graphPath);
+            }
+            catch {
+                /* best-effort — next write will retry */
+            }
+            finally {
+                resolve();
+            }
+        });
     }
     async addNode(node) {
         const now = new Date().toISOString();
@@ -131,14 +158,20 @@ export class KnowledgeGraph {
             .sort((a, b) => b.score - a.score)
             .slice(0, limit)
             .map((s) => s.node);
-        // Update access stats
+        // Update access stats in memory; persist only on a cadence so we don't
+        // fsync the entire graph on every search hit.
         const now = new Date().toISOString();
         for (const node of results) {
             node.accessCount += 1;
             node.lastAccessed = now;
         }
-        if (results.length > 0)
-            await this.save();
+        if (results.length > 0) {
+            const ms = Date.now() - this.lastAccessSaveAt;
+            if (ms > KnowledgeGraph.ACCESS_SAVE_INTERVAL_MS) {
+                this.lastAccessSaveAt = Date.now();
+                await this.save();
+            }
+        }
         return results;
     }
     async getRelated(nodeId, depth = 1) {

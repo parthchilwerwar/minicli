@@ -4,8 +4,16 @@
 import { spawn, type ChildProcess } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { getBridgeSecret } from './config.js';
 
 let pythonProcess: ChildProcess | null = null;
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const secret = getBridgeSecret();
+  if (secret) headers['X-Bridge-Secret'] = secret;
+  return headers;
+}
 
 export async function startPythonServer(): Promise<void> {
   const __filename = fileURLToPath(import.meta.url);
@@ -44,7 +52,7 @@ export async function startPythonServer(): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < maxWait) {
     try {
-      const res = await fetch('http://127.0.0.1:6280/health');
+      const res = await fetch('http://127.0.0.1:6280/health', { headers: authHeaders() });
       if (res.ok) return;
     } catch {
       // Not ready yet
@@ -69,7 +77,7 @@ export async function callPythonAgent(
   try {
     const res = await fetch('http://127.0.0.1:6280/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders(),
       body: JSON.stringify({ message, chat_id: chatId, history }),
     });
     const data = (await res.json()) as { result?: string; error?: string; detail?: string };

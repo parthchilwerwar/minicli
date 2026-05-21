@@ -58,7 +58,10 @@ function buildManifest() {
 // ─── Request handler ─────────────────────────────────────────────────────────
 function handleRequest(req, res) {
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Access-Control-Allow-Origin', '*');
+    // Intentionally NO CORS allow-origin. The MCP server is loopback-only and
+    // exposes run_shell + write_file, so any browser tab on the same machine
+    // would otherwise be able to invoke those via fetch. Local MCP clients
+    // (Claude desktop, etc.) do not need CORS.
     // MCP discovery
     if (req.method === 'GET' && req.url === '/') {
         res.writeHead(200);

@@ -1,15 +1,25 @@
 import { z } from 'zod';
 import { readFile, writeFile, readdir, stat, mkdir } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join, relative, basename } from 'path';
+import { join, relative, basename, resolve } from 'path';
+import { getVaultPath } from '../config.js';
+import { assertWithin } from './filesystem.js';
 import type { ToolDefinition } from './registry.js';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
 function vaultPath(): string {
-  const p = process.env['OBSIDIAN_VAULT_PATH'] ?? '';
-  if (!p) throw new Error('OBSIDIAN_VAULT_PATH not set in .env');
-  return p;
+  const p = getVaultPath();
+  if (!p) throw new Error('VAULT_PATH (or OBSIDIAN_VAULT_PATH) not set in .env');
+  return resolve(p);
+}
+
+/** Resolve a user-supplied filename inside the vault. Rejects ../ traversal. */
+function safeVaultPath(filename: string, folder?: string): string {
+  const vault = vaultPath();
+  const name = filename.endsWith('.md') ? filename : `${filename}.md`;
+  const target = folder ? join(vault, folder, name) : join(vault, name);
+  return assertWithin(vault, target);
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -18,8 +28,8 @@ async function walkMd(dir: string): Promise<string[]> {
   const results: string[] = [];
   const entries = await readdir(dir, { withFileTypes: true });
   for (const entry of entries) {
-    const full = join(dir, entry.name);
     if (entry.name.startsWith('.')) continue;
+    const full = join(dir, entry.name);
     if (entry.isDirectory()) {
       results.push(...await walkMd(full));
     } else if (entry.name.endsWith('.md')) {
@@ -27,12 +37,6 @@ async function walkMd(dir: string): Promise<string[]> {
     }
   }
   return results;
-}
-
-function resolveNotePath(filename: string, folder?: string): string {
-  const vault = vaultPath();
-  const name = filename.endsWith('.md') ? filename : `${filename}.md`;
-  return folder ? join(vault, folder, name) : join(vault, name);
 }
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────
@@ -68,24 +72,28 @@ export const obsidianSearchTool: ToolDefinition = {
   parameters: SearchParams,
   async execute(args) {
     const { query } = SearchParams.parse(args);
-    const vault = vaultPath();
-    const files = await walkMd(vault);
-    const queryLower = query.toLowerCase();
-    const matches: string[] = [];
+    try {
+      const vault = vaultPath();
+      const files = await walkMd(vault);
+      const queryLower = query.toLowerCase();
+      const matches: string[] = [];
 
-    for (const file of files) {
-      const content = await readFile(file, 'utf-8');
-      if (content.toLowerCase().includes(queryLower)) {
-        const rel = relative(vault, file);
-        const lines = content.split('\n');
-        const matchLine = lines.find((l) => l.toLowerCase().includes(queryLower));
-        matches.push(`📄 ${rel}\n   ${matchLine?.trim().slice(0, 100) ?? ''}`);
+      for (const file of files) {
+        const content = await readFile(file, 'utf-8');
+        if (content.toLowerCase().includes(queryLower)) {
+          const rel = relative(vault, file);
+          const lines = content.split('\n');
+          const matchLine = lines.find((l) => l.toLowerCase().includes(queryLower));
+          matches.push(`📄 ${rel}\n   ${matchLine?.trim().slice(0, 100) ?? ''}`);
+        }
+        if (matches.length >= 15) break;
       }
-      if (matches.length >= 15) break;
-    }
 
-    if (!matches.length) return `No notes matching "${query}".`;
-    return matches.join('\n\n');
+      if (!matches.length) return `No notes matching "${query}".`;
+      return matches.join('\n\n');
+    } catch (err: unknown) {
+      return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 };
 
@@ -95,22 +103,30 @@ export const obsidianReadNoteTool: ToolDefinition = {
   parameters: ReadNoteParams,
   async execute(args) {
     const { filename } = ReadNoteParams.parse(args);
-    const vault = vaultPath();
-    const name = filename.endsWith('.md') ? filename : `${filename}.md`;
+    try {
+      const vault = vaultPath();
+      const name = filename.endsWith('.md') ? filename : `${filename}.md`;
 
-    // Try exact path first, then search
-    const exactPath = join(vault, name);
-    if (existsSync(exactPath)) {
-      const content = await readFile(exactPath, 'utf-8');
+      // Direct path in vault root \u2014 reject traversal first.
+      try {
+        const exactPath = safeVaultPath(filename);
+        if (existsSync(exactPath)) {
+          const content = await readFile(exactPath, 'utf-8');
+          return content.slice(0, 8000);
+        }
+      } catch {
+        // path escaped \u2014 fall through to basename search inside the vault
+      }
+
+      // Basename search across the vault tree (each result is already inside vault).
+      const files = await walkMd(vault);
+      const match = files.find((f) => basename(f).toLowerCase() === name.toLowerCase());
+      if (!match) return `Note "${filename}" not found.`;
+      const content = await readFile(match, 'utf-8');
       return content.slice(0, 8000);
+    } catch (err: unknown) {
+      return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
     }
-
-    // Search for it
-    const files = await walkMd(vault);
-    const match = files.find((f) => basename(f).toLowerCase() === name.toLowerCase());
-    if (!match) return `Note "${filename}" not found.`;
-    const content = await readFile(match, 'utf-8');
-    return content.slice(0, 8000);
   },
 };
 
@@ -120,11 +136,15 @@ export const obsidianCreateNoteTool: ToolDefinition = {
   parameters: CreateNoteParams,
   async execute(args) {
     const { filename, content, folder } = CreateNoteParams.parse(args);
-    const notePath = resolveNotePath(filename, folder);
-    const dir = join(notePath, '..');
-    if (!existsSync(dir)) await mkdir(dir, { recursive: true });
-    await writeFile(notePath, content, 'utf-8');
-    return `Note created: ${relative(vaultPath(), notePath)}`;
+    try {
+      const notePath = safeVaultPath(filename, folder);
+      const dir = join(notePath, '..');
+      if (!existsSync(dir)) await mkdir(dir, { recursive: true });
+      await writeFile(notePath, content, 'utf-8');
+      return `Note created: ${relative(vaultPath(), notePath)}`;
+    } catch (err: unknown) {
+      return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 };
 
@@ -134,23 +154,27 @@ export const obsidianListRecentTool: ToolDefinition = {
   parameters: ListRecentParams,
   async execute(args) {
     const { limit } = ListRecentParams.parse(args);
-    const vault = vaultPath();
-    const files = await walkMd(vault);
+    try {
+      const vault = vaultPath();
+      const files = await walkMd(vault);
 
-    const withStats = await Promise.all(
-      files.map(async (f) => {
-        const s = await stat(f);
-        return { path: relative(vault, f), mtime: s.mtime.getTime() };
-      })
-    );
+      const withStats = await Promise.all(
+        files.map(async (f) => {
+          const s = await stat(f);
+          return { path: relative(vault, f), mtime: s.mtime.getTime() };
+        })
+      );
 
-    withStats.sort((a, b) => b.mtime - a.mtime);
-    const top = withStats.slice(0, limit ?? 10);
+      withStats.sort((a, b) => b.mtime - a.mtime);
+      const top = withStats.slice(0, limit ?? 10);
 
-    if (!top.length) return 'No notes found in vault.';
-    return top.map((f) =>
-      `📄 ${f.path}  (${new Date(f.mtime).toLocaleDateString()})`
-    ).join('\n');
+      if (!top.length) return 'No notes found in vault.';
+      return top.map((f) =>
+        `📄 ${f.path}  (${new Date(f.mtime).toLocaleDateString()})`
+      ).join('\n');
+    } catch (err: unknown) {
+      return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 };
 
@@ -160,16 +184,20 @@ export const obsidianAppendNoteTool: ToolDefinition = {
   parameters: AppendNoteParams,
   async execute(args) {
     const { filename, content } = AppendNoteParams.parse(args);
-    const vault = vaultPath();
-    const name = filename.endsWith('.md') ? filename : `${filename}.md`;
+    try {
+      const vault = vaultPath();
+      const name = filename.endsWith('.md') ? filename : `${filename}.md`;
 
-    const files = await walkMd(vault);
-    const match = files.find((f) => basename(f).toLowerCase() === name.toLowerCase())
-      ?? join(vault, name);
+      const files = await walkMd(vault);
+      const match = files.find((f) => basename(f).toLowerCase() === name.toLowerCase())
+        ?? safeVaultPath(filename);
 
-    if (!existsSync(match)) return `Note "${filename}" not found.`;
-    const existing = await readFile(match, 'utf-8');
-    await writeFile(match, existing + '\n\n' + content, 'utf-8');
-    return `Appended to ${relative(vault, match)}.`;
+      if (!existsSync(match)) return `Note "${filename}" not found.`;
+      const existing = await readFile(match, 'utf-8');
+      await writeFile(match, existing + '\n\n' + content, 'utf-8');
+      return `Appended to ${relative(vault, match)}.`;
+    } catch (err: unknown) {
+      return `ERROR: ${err instanceof Error ? err.message : String(err)}`;
+    }
   },
 };

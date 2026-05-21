@@ -13,14 +13,14 @@ import { messageQueue } from './queue.js';
 import { asyncTasks } from './async-tasks.js';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import { extname, resolve } from 'path';
+import { extname, resolve, relative, isAbsolute } from 'path';
 
 // ─── State ───────────────────────────────────────────────────────────────────
 
 let bot: TelegramBot | null = null;
 const chatHistory = new Map<number, Array<{ role: string; content: string }>>();
 const HISTORY_MAX = 20;
-const TEXT_EXTS = new Set(['.txt', '.md', '.json', '.csv', '.log', '.ts', '.js', '.py', '.sh', '.yaml', '.yml', '.toml', '.env']);
+const TEXT_EXTS = new Set(['.txt', '.md', '.json', '.csv', '.log', '.ts', '.js', '.py', '.sh', '.yaml', '.yml', '.toml']);
 
 function getHistory(chatId: number): Array<{ role: string; content: string }> {
   if (!chatHistory.has(chatId)) chatHistory.set(chatId, []);
@@ -67,8 +67,22 @@ async function tryReadAndSendFile(chatId: number, response: string): Promise<voi
   }
   if (!candidates.length) return;
   const roots = [getDesktopPath(), getDownloadsPath(), getVaultPath()].filter(Boolean) as string[];
+  const resolvedRoots = roots.map((r) => resolve(r));
+
+  /** Returns true if `target` resolves inside one of the configured roots. */
+  const insideRoots = (target: string): boolean => {
+    const t = resolve(target);
+    return resolvedRoots.some((r) => {
+      if (t === r) return true;
+      const rel = relative(r, t);
+      return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+    });
+  };
+
   for (const name of candidates) {
-    if (existsSync(name) && TEXT_EXTS.has(extname(name).toLowerCase())) {
+    // The LLM may have produced an absolute path like /etc/passwd. We refuse
+    // to send anything that isn't inside the configured allow-list.
+    if (existsSync(name) && insideRoots(name) && TEXT_EXTS.has(extname(name).toLowerCase())) {
       const content = await readFile(name, 'utf-8');
       await bot?.sendMessage(chatId, `📄 ${name}\n\n${content.slice(0, 3800)}`)
         .catch(() => {});
@@ -76,6 +90,7 @@ async function tryReadAndSendFile(chatId: number, response: string): Promise<voi
     }
     for (const root of roots) {
       const full = resolve(root, name);
+      if (!insideRoots(full)) continue; // protect against `../../etc/passwd`
       if (existsSync(full) && TEXT_EXTS.has(extname(full).toLowerCase())) {
         const content = await readFile(full, 'utf-8');
         await bot?.sendMessage(chatId, `📄 ${name}\n\n${content.slice(0, 3800)}`)

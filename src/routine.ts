@@ -4,6 +4,18 @@ import { runAgent } from './agent.js';
 import { ALL_TOOLS } from './tools/registry.js';
 import { info, error } from './ui.js';
 
+/** Tools that need an interactive TTY or are too destructive for cron. */
+const HEADLESS_BLOCKLIST = new Set(['run_shell', 'write_file']);
+
+/**
+ * Routines run from cron with no TTY, so any tool that calls inquirer or
+ * writes outside the allow-list would deadlock or do damage. We filter
+ * ALL_TOOLS down to the safe subset for headless execution.
+ */
+function headlessTools() {
+  return ALL_TOOLS.filter((t) => !HEADLESS_BLOCKLIST.has(t.name));
+}
+
 export async function runHeadlessRoutine(id: string): Promise<void> {
   const routines = loadRoutines();
   const routine = routines.find(r => r.id === id);
@@ -14,19 +26,19 @@ export async function runHeadlessRoutine(id: string): Promise<void> {
   if (Object.keys(ctx).length > 0) {
     ctxBlock = `Personal Context Profile:\n${JSON.stringify(ctx, null, 2)}\n`;
   }
-  
-  const systemMsg = `${ctxBlock}Execute the following automation routine. Summarize what you did clearly in a note.`;
-  
+
+  const systemMsg = `${ctxBlock}Execute the following automation routine. Summarize what you did clearly in a note. Note: shell execution and arbitrary file writes are disabled in headless cron mode.`;
+
   try {
      const result = await runAgent(
-         routine.desc, 
-         ALL_TOOLS, 
-         [{ role: 'system', content: systemMsg }], 
+         routine.desc,
+         headlessTools(),
+         [{ role: 'system', content: systemMsg }],
          false // Headless so stream=false
      );
-     
+
      saveNote(`[Routine: ${routine.desc}]\n${result}`, ['routine', 'automated']);
-     
+
      routine.lastRun = Date.now();
      updateRoutine(routine);
   } catch (err: unknown) {

@@ -4,7 +4,15 @@
 import { spawn } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { getBridgeSecret } from './config.js';
 let pythonProcess = null;
+function authHeaders() {
+    const headers = { 'Content-Type': 'application/json' };
+    const secret = getBridgeSecret();
+    if (secret)
+        headers['X-Bridge-Secret'] = secret;
+    return headers;
+}
 export async function startPythonServer() {
     const __filename = fileURLToPath(import.meta.url);
     const __dirname = dirname(__filename);
@@ -39,7 +47,7 @@ export async function startPythonServer() {
     const start = Date.now();
     while (Date.now() - start < maxWait) {
         try {
-            const res = await fetch('http://127.0.0.1:6280/health');
+            const res = await fetch('http://127.0.0.1:6280/health', { headers: authHeaders() });
             if (res.ok)
                 return;
         }
@@ -60,7 +68,7 @@ export async function callPythonAgent(message, chatId, history = []) {
     try {
         const res = await fetch('http://127.0.0.1:6280/chat', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: authHeaders(),
             body: JSON.stringify({ message, chat_id: chatId, history }),
         });
         const data = (await res.json());
