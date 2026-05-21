@@ -54,8 +54,13 @@ type Edge = z.infer<typeof EdgeSchema>;
 export declare class KnowledgeGraph {
     private graphPath;
     private graph;
+    private writeQueue;
+    private lastAccessSaveAt;
+    private static readonly ACCESS_SAVE_INTERVAL_MS;
     load(): Promise<void>;
+    /** Atomic, serialized save: write to tmp then rename. */
     save(): Promise<void>;
+    private writeNow;
     addNode(node: Omit<Node, 'id' | 'createdAt' | 'updatedAt' | 'accessCount' | 'lastAccessed'>): Promise<Node>;
     addEdge(from: string, to: string, relation: Edge['relation'], weight?: number): Promise<void>;
     search(query: string, limit?: number): Promise<Node[]>;

@@ -83,7 +83,8 @@ async def git_status() -> str:
 @tool
 async def git_log(count: int = 10) -> str:
     """Get recent git commits."""
-    return await call_bridge_tool("git_log", {"count": count})
+    # Node-side schema expects `n`, not `count`.
+    return await call_bridge_tool("git_log", {"n": count})
 
 
 @tool
@@ -127,9 +128,12 @@ async def ticktick_create_task(title: str, description: str = "") -> str:
 
 
 @tool
-async def ticktick_complete_task(task_id: str) -> str:
-    """Mark a TickTick task as complete."""
-    return await call_bridge_tool("ticktick_complete_task", {"taskId": task_id})
+async def ticktick_complete_task(task_id: str, project_id: str) -> str:
+    """Mark a TickTick task as complete. Both task_id and project_id are required by the TickTick API."""
+    return await call_bridge_tool(
+        "ticktick_complete_task",
+        {"taskId": task_id, "projectId": project_id},
+    )
 
 
 # ── Calendar ─────────────────────────────────────────────────────────────────

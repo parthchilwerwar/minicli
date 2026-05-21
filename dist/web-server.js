@@ -1,5 +1,4 @@
 import * as http from 'http';
-import { networkInterfaces } from 'os';
 import { generateHtml } from './web-ui.js';
 import { getAllMemories, getMemoryById } from './memory-store.js';
 import { startCloudflaredTunnel, stopTunnel, getTunnelUrl } from './tunnel.js';
@@ -8,14 +7,17 @@ export function getWebPort() {
     const p = process.env['WEB_PORT'];
     return p ? parseInt(p, 10) : 7654;
 }
+/**
+ * The Web UI exposes raw memories. We bind to loopback only by default so it
+ * is reachable only from the same machine. Setting ENABLE_PUBLIC_WEB=true
+ * starts a Cloudflare Quick Tunnel; doing so makes every memory readable by
+ * anyone who can guess the trycloudflare URL, so it is strictly opt-in.
+ */
+function publicWebEnabled() {
+    return (process.env['ENABLE_PUBLIC_WEB'] ?? '').toLowerCase() === 'true';
+}
 export function getLanIp() {
-    const nets = networkInterfaces();
-    for (const iface of Object.values(nets)) {
-        for (const addr of iface ?? []) {
-            if (addr.family === 'IPv4' && !addr.internal)
-                return addr.address;
-        }
-    }
+    // Web UI is loopback-only. LAN IP kept for legacy callers.
     return '127.0.0.1';
 }
 // ─── State ────────────────────────────────────────────────────────────────────
@@ -69,9 +71,16 @@ export function startWebServer() {
         webServer.on('error', (err) => {
             reject(new Error(`Web server error: ${err.message}`));
         });
-        webServer.listen(port, '0.0.0.0', () => {
+        // Bind to loopback only. The /api/memories endpoint dumps personal
+        // conversations, so we never expose it on 0.0.0.0 by default.
+        webServer.listen(port, '127.0.0.1', () => {
             const localUrl = getWebUrl();
-            // Attempt Cloudflare Quick Tunnel
+            if (!publicWebEnabled()) {
+                publicUrl = localUrl;
+                resolve({ localUrl, publicUrl: localUrl });
+                return;
+            }
+            // Opt-in Cloudflare Quick Tunnel — user explicitly accepts public exposure.
             void startCloudflaredTunnel(port).then((tUrl) => {
                 publicUrl = tUrl;
                 resolve({ localUrl, publicUrl: tUrl });

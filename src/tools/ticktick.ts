@@ -46,7 +46,7 @@ const CreateTaskParams = z.object({
 
 const CompleteTaskParams = z.object({
   taskId: z.string().describe('Task ID'),
-  projectId: z.string().describe('Project ID the task belongs to'),
+  projectId: z.string().optional().describe('Project ID the task belongs to (looked up automatically if omitted)'),
 });
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -131,7 +131,19 @@ export const ticktickCompleteTaskTool: ToolDefinition = {
   parameters: CompleteTaskParams,
   async execute(args) {
     const { taskId, projectId } = CompleteTaskParams.parse(args);
-    await ttFetch(`/project/${projectId}/task/${taskId}/complete`, 'POST');
+    let resolvedProjectId = projectId;
+    if (!resolvedProjectId) {
+      // The LLM often forgets projectId. Look it up so we don't 400.
+      try {
+        const tasks = await fetchAllTasks();
+        const match = tasks.find((t) => t.id === taskId);
+        if (!match?.projectId) return `ERROR: task ${taskId} not found, cannot resolve projectId`;
+        resolvedProjectId = match.projectId;
+      } catch (err: unknown) {
+        return `ERROR: failed to resolve projectId: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    await ttFetch(`/project/${resolvedProjectId}/task/${taskId}/complete`, 'POST');
     return `Task ${taskId} marked complete.`;
   },
 };

@@ -53,13 +53,56 @@ function parseRssXml(xml: string): FeedItem[] {
 }
 
 async function fetchFeed(url: string, limit: number): Promise<FeedItem[]> {
+  assertPublicHttpUrl(url);
   const res = await fetch(url, {
     headers: { 'User-Agent': 'minicli-news/1.0' },
     signal: AbortSignal.timeout(10000),
+    redirect: 'follow',
   });
   if (!res.ok) throw new Error(`Feed fetch failed (${res.status}): ${url}`);
+  // After redirects, double-check the final URL is still safe — redirects can
+  // bounce to 169.254.169.254 / 127.0.0.1 even when the initial host is fine.
+  if (res.url) assertPublicHttpUrl(res.url);
   const xml = await res.text();
   return parseRssXml(xml).slice(0, limit);
+}
+
+// ─── SSRF guard ────────────────────────────────────────────────────────────────────
+
+/**
+ * Reject obvious SSRF targets: non-http schemes, loopback, link-local /
+ * cloud-metadata, RFC1918 ranges, and IPv6 loopback. We accept the tradeoff
+ * of blocking valid hosts that resolve to private IPs — RSS feeds shouldn't.
+ */
+function assertPublicHttpUrl(rawUrl: string): void {
+  let u: URL;
+  try { u = new URL(rawUrl); } catch { throw new Error(`Invalid URL: ${rawUrl}`); }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+    throw new Error(`Refusing non-http(s) URL: ${u.protocol}`);
+  }
+  const host = u.hostname.toLowerCase();
+  if (!host) throw new Error('Refusing URL with empty host');
+  if (host === 'localhost' || host === 'localhost.localdomain' || host.endsWith('.localhost')) {
+    throw new Error('Refusing loopback host');
+  }
+  if (host === '::1' || host === '::' || host === '[::1]') throw new Error('Refusing IPv6 loopback');
+
+  // IPv4 numeric
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 0) throw new Error('Refusing 0.0.0.0/8');
+    if (a === 10) throw new Error('Refusing 10.0.0.0/8');
+    if (a === 127) throw new Error('Refusing 127.0.0.0/8');
+    if (a === 169 && b === 254) throw new Error('Refusing 169.254.0.0/16 (link-local / metadata)');
+    if (a === 172 && b >= 16 && b <= 31) throw new Error('Refusing 172.16.0.0/12');
+    if (a === 192 && b === 168) throw new Error('Refusing 192.168.0.0/16');
+    if (a >= 224) throw new Error('Refusing multicast / reserved range');
+  }
+  // IPv6 bracketed unique-local / link-local catch-all
+  if (host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80')) {
+    throw new Error('Refusing IPv6 private range');
+  }
 }
 
 // ─── Schemas ─────────────────────────────────────────────────────────────────

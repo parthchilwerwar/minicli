@@ -1,0 +1,32 @@
+# Dependencies (committed for now but should be ignored)
+# To untrack, run: git rm -r --cached node_modules
+# node_modules/
+
+# Build output (committed for now but should be ignored)
+# dist/
+
+# Environment
+.env
+.env.local
+*.local
+
+# OS / editor
+.DS_Store
+*.swp
+*.swo
+.idea/
+.vscode/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# minicli runtime
+.minicli/
+
+# tmp build artefacts
+*.tmp
+*.tmp.*

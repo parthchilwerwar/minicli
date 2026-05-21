@@ -433,7 +433,11 @@ canvas.addEventListener('mousemove', (e) => {
     tooltip.style.top     = (e.clientY + 12) + 'px';
     const badge = document.getElementById('tt-badge');
     badge.textContent = hit.type || 'memory';
-    badge.style.cssText = BADGE_STYLE[hit.type] || '';
+    // \`type\` comes from user-derived data (memories migrated from chats).
+    // Apply badge style by class lookup, not by writing the raw value into
+    // style.cssText \u2014 otherwise an attacker-shaped type field could inject CSS.
+    const style = BADGE_STYLE[hit.type];
+    badge.setAttribute('style', typeof style === 'string' ? style : '');
     document.getElementById('tt-title').textContent = hit.title || '';
     document.getElementById('tt-sub').textContent   = hit.summary || (new Date(hit.timestamp).toLocaleString());
     canvas.style.cursor = 'pointer';
@@ -456,7 +460,8 @@ function openPanel(mem) {
 
   const badge = document.getElementById('p-badge');
   badge.textContent = mem.type || 'memory';
-  badge.style.cssText = BADGE_STYLE[mem.type] || '';
+  const pStyle = BADGE_STYLE[mem.type];
+  badge.setAttribute('style', typeof pStyle === 'string' ? pStyle : '');
 
   document.getElementById('p-title').textContent = mem.title || 'Memory';
   document.getElementById('p-meta').textContent  = [

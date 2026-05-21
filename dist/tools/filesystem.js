@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { readFile, readdir, stat } from 'fs/promises';
 import { existsSync } from 'fs';
-import { join, resolve, relative, extname, basename } from 'path';
+import { join, resolve, relative, isAbsolute, extname, basename } from 'path';
 import { getVaultPath, getDesktopPath, getDownloadsPath, getNotesPath } from '../config.js';
 // ─── Safety ──────────────────────────────────────────────────────────────────
 const BINARY_EXTS = new Set([
@@ -11,24 +11,47 @@ const BINARY_EXTS = new Set([
     '.pdf', '.docx', '.xlsx', '.pptx', '.woff', '.woff2', '.ttf', '.otf',
 ]);
 const MAX_READ_BYTES = 50 * 1024; // 50KB
-function getAllowedRoots() {
+export function getAllowedRoots() {
     return [getVaultPath(), getNotesPath(), getDesktopPath(), getDownloadsPath()]
         .filter(Boolean)
         .map((p) => resolve(p));
 }
-function assertAllowed(targetPath) {
+/**
+ * Resolve targetPath and verify it sits inside one of the allowed roots.
+ * Uses path.relative() so /vault-evil cannot pass for /vault — a prefix
+ * comparison via startsWith() would let that through.
+ */
+export function assertAllowed(targetPath) {
     const resolved = resolve(targetPath);
     const roots = getAllowedRoots();
     if (roots.length === 0)
         throw new Error('No allowed directories configured in .env');
-    const ok = roots.some((r) => resolved.startsWith(r));
+    const ok = roots.some((root) => {
+        if (resolved === root)
+            return true;
+        const rel = relative(root, resolved);
+        return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
+    });
     if (!ok)
         throw new Error('Access denied: path outside allowed directories');
     return resolved;
 }
-function isBinary(filePath) {
+/** Same containment check as assertAllowed but for a single explicit root. */
+export function assertWithin(root, targetPath) {
+    const r = resolve(root);
+    const resolved = resolve(targetPath);
+    if (resolved === r)
+        return resolved;
+    const rel = relative(r, resolved);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) {
+        throw new Error('Access denied: path escapes its allowed root');
+    }
+    return resolved;
+}
+export function isBinary(filePath) {
     return BINARY_EXTS.has(extname(filePath).toLowerCase());
 }
+export const MAX_FILE_READ_BYTES = MAX_READ_BYTES;
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 async function walkDir(dir, depth, current = 0) {
     if (current >= depth)
